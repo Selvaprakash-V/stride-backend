@@ -15,14 +15,16 @@ import userRoutes from "./routes/userRoutes.js";
 import { ensureProblemsSeeded } from "./lib/seedProblems.js";
 
 const app = express();
-
 const __dirname = path.resolve();
 
-// middleware
+// Middleware
 app.use(express.json());
 
-// Configure CORS to allow the frontend origin with credentials
-const allowedOrigins = [ENV.CLIENT_URL, "http://localhost:5173"].filter(Boolean);
+// CORS: separate dev vs prod
+const allowedOrigins =
+  ENV.NODE_ENV === "development"
+    ? ["http://localhost:5173"]
+    : [ENV.CLIENT_URL].filter(Boolean);
 
 app.use(
   cors({
@@ -30,34 +32,44 @@ app.use(
     credentials: true,
   })
 );
-app.use(clerkMiddleware()); // this adds auth field to request object: req.auth()
 
+// Clerk auth middleware
+app.use(clerkMiddleware());
+
+// API routes
 app.use("/api/inngest", serve({ client: inngest, functions }));
 app.use("/api/chat", chatRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/problems", problemRoutes);
 app.use("/api/users", userRoutes);
 
+// Health check
 app.get("/health", (req, res) => {
-  res.status(200).json({ msg: "api is up and running" });
+  res.status(200).json({ msg: "API is up and running" });
 });
 
-// make our app ready for deployment
+// Serve frontend in production
 if (ENV.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "../frontend/dist")));
+  const frontendPath = path.join(__dirname, "../frontend/dist");
+  app.use(express.static(frontendPath));
 
-  app.get("/{*any}", (req, res) => {
-    res.sendFile(path.join(__dirname, "../frontend", "dist", "index.html"));
+  // Catch-all route for SPA
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(frontendPath, "index.html"));
   });
 }
 
+// Start server
 const startServer = async () => {
   try {
     await connectDB();
     await ensureProblemsSeeded();
-    app.listen(ENV.PORT, () => console.log("Server is running on port:", ENV.PORT));
+
+    const PORT = process.env.PORT || ENV.PORT || 3000;
+    app.listen(PORT, () => console.log(`Server is running on port: ${PORT}`));
   } catch (error) {
-    console.error("💥 Error starting the server", error);
+    console.error("💥 Error starting the server:", error);
+    process.exit(1);
   }
 };
 
